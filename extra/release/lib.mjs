@@ -24,8 +24,15 @@ export function checkDocker() {
 /**
  * Get Docker Hub repository name
  */
-export function getRepoName() {
-    return process.env.RELEASE_REPO_NAME || "louislam/uptime-kuma";
+export function getRepoNames() {
+    if (process.env.RELEASE_REPO_NAMES) {
+        // Split by comma
+        return process.env.RELEASE_REPO_NAMES.split(",").map((name) => name.trim());
+    }
+    return [
+        "louislam/uptime-kuma",
+        "ghcr.io/louislam/uptime-kuma",
+    ];
 }
 
 /**
@@ -42,7 +49,7 @@ export function buildDist() {
 
 /**
  * Build docker image and push to Docker Hub
- * @param {string} repoName Docker Hub repository name
+ * @param {string[]} repoNames Docker Hub repository names
  * @param {string[]} tags Docker image tags
  * @param {string} target Dockerfile's target name
  * @param {string} buildArgs Docker build args
@@ -50,7 +57,7 @@ export function buildDist() {
  * @param {string} platform Build platform
  * @returns {void}
  */
-export function buildImage(repoName, tags, target, buildArgs = "", dockerfile = "docker/dockerfile", platform = "linux/amd64,linux/arm64,linux/arm/v7") {
+export function buildImage(repoNames, tags, target, buildArgs = "", dockerfile = "docker/dockerfile", platform = "linux/amd64,linux/arm64,linux/arm/v7") {
     let args = [
         "buildx",
         "build",
@@ -60,9 +67,11 @@ export function buildImage(repoName, tags, target, buildArgs = "", dockerfile = 
         platform,
     ];
 
-    // Add tags
-    for (let tag of tags) {
-        args.push("-t", `${repoName}:${tag}`);
+    for (let repoName of repoNames) {
+        // Add tags
+        for (let tag of tags) {
+            args.push("-t", `${repoName}:${tag}`);
+        }
     }
 
     args = [
@@ -171,10 +180,43 @@ export function ver(version, identifier) {
 
 /**
  * Upload artifacts to GitHub
+ * docker buildx build -f docker/dockerfile --platform linux/amd64 -t louislam/uptime-kuma:upload-artifact --build-arg VERSION --build-arg GITHUB_TOKEN --target upload-artifact . --progress plain
+ * @param {string} version Version
+ * @param {string} githubToken GitHub token
  * @returns {void}
  */
-export function uploadArtifacts() {
-    execSync("npm run upload-artifacts");
+export function uploadArtifacts(version, githubToken) {
+    let args = [
+        "buildx",
+        "build",
+        "-f",
+        "docker/dockerfile",
+        "--platform",
+        "linux/amd64",
+        "-t",
+        "louislam/uptime-kuma:upload-artifact",
+        "--build-arg",
+        `VERSION=${version}`,
+        "--build-arg",
+        "GITHUB_TOKEN",
+        "--target",
+        "upload-artifact",
+        ".",
+        "--progress",
+        "plain",
+    ];
+
+    if (!dryRun) {
+        childProcess.spawnSync("docker", args, {
+            stdio: "inherit",
+            env: {
+                ...process.env,
+                GITHUB_TOKEN: githubToken,
+            },
+        });
+    } else {
+        console.log(`[DRY RUN] docker ${args.join(" ")}`);
+    }
 }
 
 /**
